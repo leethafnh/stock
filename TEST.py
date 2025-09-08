@@ -8,7 +8,7 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageDraw
 import pystray
 
-# ===================== HÀM HỖ TRỢ =====================
+# ===================== HỖ TRỢ =====================
 
 ICON_PATH = "C:/Users/ThanhLQ/Downloads/n.ico"   # đổi thành file .ico của bạn
 
@@ -17,7 +17,6 @@ def create_image():
         return Image.open(ICON_PATH)
     except Exception as e:
         print(f"⚠️ Không tìm thấy icon, fallback mặc định: {e}")
-        # fallback icon tròn xanh
         image = Image.new("RGB", (64, 64), "white")
         dc = ImageDraw.Draw(image)
         dc.ellipse((8, 8, 56, 56), fill="green")
@@ -112,17 +111,17 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
         full_mode = False
         allow_send = False
 
-        # 👉 chỉ bắn trong khung giờ 9h - 15h
+        # 👉 Chỉ gửi trong giờ 9h - 15h
         if 9 <= hour <= 15:
             allow_send = True
 
-        # 👉 9h sáng: bắn full 1 lần
+        # 👉 9h sáng: gửi full lần đầu
         if hour == 9 and not sent_full_morning:
             full_mode = True
             sent_full_morning = True
             allow_send = True
 
-        # 👉 15h chiều: bắn full 1 lần
+        # 👉 15h chiều: gửi full lần cuối
         if hour == 15 and not sent_full_afternoon:
             full_mode = True
             sent_full_afternoon = True
@@ -142,11 +141,19 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
 
             prev_sent = last_sent_data.get(symbol)
 
-            if full_mode or prev_sent is None or (allow_send and prev_sent != lastPrice):
+            if full_mode:
+                # full: bắn đầy đủ thông tin
                 telegram_lines.append(
                     f"{emoji} {symbol}: {lastPrice} ({change:+.2f}), T:{ceiling}, TC:{ref_price}, S:{floor_price}"
                 )
                 last_sent_data[symbol] = lastPrice
+            else:
+                # trong ngày: chỉ bắn nếu giá thay đổi
+                if prev_sent is None or (allow_send and prev_sent != lastPrice):
+                    telegram_lines.append(
+                        f"{emoji} {symbol}: {lastPrice} ({change:+.2f})"
+                    )
+                    last_sent_data[symbol] = lastPrice
 
             if lastPrice == ceiling:
                 ceiling_symbols.append(symbol)
@@ -162,7 +169,7 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
             send_telegram_message(bot_token, chat_id, "\n".join(telegram_lines))
 
         # 👉 reset lại cờ cho ngày hôm sau
-        if hour == 0:
+        if hour == 0:  
             sent_full_morning = False
             sent_full_afternoon = False
             last_sent_data = {}
@@ -229,7 +236,6 @@ root = tk.Tk()
 root.title("StockBot Config (Author: ThanhLQ)")
 root.geometry("400x250")
 
-# 👉 Thay icon Tkinter bằng feather.ico
 try:
     root.iconbitmap(ICON_PATH)
 except Exception as e:
@@ -263,7 +269,6 @@ chk_startup.pack()
 btn_start = tk.Button(root, text="Bắt đầu", command=run)
 btn_start.pack(pady=10)
 
-# chạy tray icon song song
 t_tray = threading.Thread(target=run_tray_icon, daemon=True)
 t_tray.start()
 
