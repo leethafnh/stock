@@ -17,7 +17,7 @@ def create_image():
         return Image.open(ICON_PATH)
     except Exception as e:
         print(f"⚠️ Không tìm thấy icon, fallback mặc định: {e}")
-        # fallback icon tròn xanh nếu không có file ico
+        # fallback icon tròn xanh
         image = Image.new("RGB", (64, 64), "white")
         dc = ImageDraw.Draw(image)
         dc.ellipse((8, 8, 56, 56), fill="green")
@@ -83,17 +83,21 @@ def get_status_emoji(lastPrice, change, ref_price, ceiling, floor_price):
 
 # ===================== BOT LOGIC =====================
 
-previous_data = {}
+last_sent_data = {}
+sent_full_morning = False
+sent_full_afternoon = False
 
 def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
-    global previous_data
+    global last_sent_data, sent_full_morning, sent_full_afternoon
 
     if run_startup:
         add_to_startup()
 
     while True:
+        now = time.localtime()
+        hour, minute = now.tm_hour, now.tm_min
+
         telegram_lines = []
-        any_change = False
         ceiling_symbols = []
         floor_symbols = []
 
@@ -105,6 +109,25 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
             time.sleep(check_interval)
             continue
 
+        full_mode = False
+        allow_send = False
+
+        # 👉 chỉ bắn trong khung giờ 9h - 15h
+        if 9 <= hour <= 15:
+            allow_send = True
+
+        # 👉 9h sáng: bắn full 1 lần
+        if hour == 9 and not sent_full_morning:
+            full_mode = True
+            sent_full_morning = True
+            allow_send = True
+
+        # 👉 15h chiều: bắn full 1 lần
+        if hour == 15 and not sent_full_afternoon:
+            full_mode = True
+            sent_full_afternoon = True
+            allow_send = True
+
         for symbol in symbols_to_track:
             data = fetch_vps_data(symbol)
             if not data:
@@ -115,58 +138,35 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
             ceiling = float(data.get('c', 0))
             floor_price = float(data.get('f', 0))
             change = lastPrice - ref_price
+            emoji = get_status_emoji(lastPrice, change, ref_price, ceiling, floor_price)
 
-            prev = previous_data.get(symbol)
+            prev_sent = last_sent_data.get(symbol)
 
-            if prev is None:
-                # lần đầu lưu + gửi thông tin đầy đủ
-                previous_data[symbol] = {
-                    'lastPrice': lastPrice,
-                    'change': change,
-                    'ceiling': ceiling,
-                    'floor': floor_price,
-                    'ref': ref_price
-                }
-                emoji = get_status_emoji(lastPrice, change, ref_price, ceiling, floor_price)
+            if full_mode or prev_sent is None or (allow_send and prev_sent != lastPrice):
                 telegram_lines.append(
-                    f"{emoji} {symbol}: {lastPrice} ({change:+.2f}), T: {ceiling}, TC: {ref_price}, S: {floor_price}"
+                    f"{emoji} {symbol}: {lastPrice} ({change:+.2f}), T:{ceiling}, TC:{ref_price}, S:{floor_price}"
                 )
-                any_change = True
-            else:
-                # chỉ gửi khi có thay đổi so với lần trước
-                if (
-                    prev['lastPrice'] != lastPrice or
-                    prev['change'] != change or
-                    prev['ceiling'] != ceiling or
-                    prev['floor'] != floor_price or
-                    prev['ref'] != ref_price
-                ):
-                    previous_data[symbol] = {
-                        'lastPrice': lastPrice,
-                        'change': change,
-                        'ceiling': ceiling,
-                        'floor': floor_price,
-                        'ref': ref_price
-                    }
-                    emoji = get_status_emoji(lastPrice, change, ref_price, ceiling, floor_price)
-                    telegram_lines.append(
-                        f"{emoji} {symbol}: {lastPrice} ({change:+.2f})"
-                    )
-                    any_change = True
+                last_sent_data[symbol] = lastPrice
 
             if lastPrice == ceiling:
                 ceiling_symbols.append(symbol)
             if lastPrice == floor_price:
                 floor_symbols.append(symbol)
 
-        if any_change:
+        # 👉 Gom thành 1 tin duy nhất
+        if telegram_lines and allow_send:
             if ceiling_symbols:
                 telegram_lines.append("💜 MÃ TRẦN: " + ", ".join(ceiling_symbols))
             if floor_symbols:
                 telegram_lines.append("🩵 MÃ SÀN: " + ", ".join(floor_symbols))
             send_telegram_message(bot_token, chat_id, "\n".join(telegram_lines))
 
-        # chờ đúng chu kỳ rồi check lại
+        # 👉 reset lại cờ cho ngày hôm sau
+        if hour == 0:
+            sent_full_morning = False
+            sent_full_afternoon = False
+            last_sent_data = {}
+
         time.sleep(check_interval)
 
 # ===================== TRAY ICON =====================
@@ -210,14 +210,14 @@ def run():
     bot_token = entry_token.get().strip()
     chat_id = entry_chatid.get().strip()
     symbols_file = entry_file.get().strip()
-    check_interval = int(entry_interval.get().strip())
+    fetch_interval = int(entry_interval.get().strip())
     run_startup = var_startup.get()
 
     if not bot_token or not chat_id or not symbols_file:
         messagebox.showerror("Thiếu dữ liệu", "Vui lòng điền đầy đủ Token, Chat ID và File danh sách mã.")
         return
 
-    t = threading.Thread(target=start_bot, args=(bot_token, chat_id, symbols_file, check_interval, run_startup), daemon=True)
+    t = threading.Thread(target=start_bot, args=(bot_token, chat_id, symbols_file, fetch_interval, run_startup), daemon=True)
     t.start()
 
     messagebox.showinfo("Bot", "✅ Bot đã khởi động, sẽ gửi tin vào Telegram.\nBạn có thể thấy icon ở khay hệ thống.")
@@ -251,9 +251,9 @@ entry_file.pack(side=tk.LEFT)
 btn_browse = tk.Button(frame_file, text="Browse", command=browse_file)
 btn_browse.pack(side=tk.LEFT)
 
-tk.Label(root, text="Interval check (giây):").pack()
+tk.Label(root, text="Interval (giây):").pack()
 entry_interval = tk.Entry(root, width=10)
-entry_interval.insert(0, "120")  # mặc định 120 giây
+entry_interval.insert(0, "60")
 entry_interval.pack()
 
 var_startup = tk.BooleanVar()
