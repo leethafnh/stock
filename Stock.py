@@ -8,10 +8,9 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageDraw
 import pystray
 
-# ===================== HỖ TRỢ =====================
-
 ICON_PATH = "C:/Users/ThanhLQ/Downloads/n.ico"   # đổi thành file .ico của bạn
 
+# ===================== HỖ TRỢ =====================
 def create_image():
     try:
         return Image.open(ICON_PATH)
@@ -81,7 +80,6 @@ def get_status_emoji(lastPrice, change, ref_price, ceiling, floor_price):
         return "⚪"  # không đổi
 
 # ===================== BOT LOGIC =====================
-
 last_sent_data = {}
 sent_full_morning = False
 sent_full_afternoon = False
@@ -94,7 +92,7 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
 
     while True:
         now = time.localtime()
-        hour, minute = now.tm_hour, now.tm_min
+        hour = now.tm_hour
 
         telegram_lines = []
         ceiling_symbols = []
@@ -111,17 +109,14 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
         full_mode = False
         allow_send = False
 
-        # 👉 Chỉ gửi trong giờ 9h - 15h
         if 9 <= hour <= 15:
             allow_send = True
 
-        # 👉 9h sáng: gửi full lần đầu
         if hour == 9 and not sent_full_morning:
             full_mode = True
             sent_full_morning = True
             allow_send = True
 
-        # 👉 15h chiều: gửi full lần cuối
         if hour == 15 and not sent_full_afternoon:
             full_mode = True
             sent_full_afternoon = True
@@ -142,13 +137,11 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
             prev_sent = last_sent_data.get(symbol)
 
             if full_mode:
-                # full: bắn đầy đủ thông tin
                 telegram_lines.append(
                     f"{emoji} {symbol}: {lastPrice} ({change:+.2f}), T:{ceiling}, TC:{ref_price}, S:{floor_price}"
                 )
                 last_sent_data[symbol] = lastPrice
             else:
-                # trong ngày: chỉ bắn nếu giá thay đổi
                 if prev_sent is None or (allow_send and prev_sent != lastPrice):
                     telegram_lines.append(
                         f"{emoji} {symbol}: {lastPrice} ({change:+.2f})"
@@ -160,7 +153,6 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
             if lastPrice == floor_price:
                 floor_symbols.append(symbol)
 
-        # 👉 Gom thành 1 tin duy nhất
         if telegram_lines and allow_send:
             if ceiling_symbols:
                 telegram_lines.append("💜 MÃ TRẦN: " + ", ".join(ceiling_symbols))
@@ -168,8 +160,7 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
                 telegram_lines.append("🩵 MÃ SÀN: " + ", ".join(floor_symbols))
             send_telegram_message(bot_token, chat_id, "\n".join(telegram_lines))
 
-        # 👉 reset lại cờ cho ngày hôm sau
-        if hour == 0:  
+        if hour == 0:
             sent_full_morning = False
             sent_full_afternoon = False
             last_sent_data = {}
@@ -177,14 +168,13 @@ def start_bot(bot_token, chat_id, symbols_file, check_interval, run_startup):
         time.sleep(check_interval)
 
 # ===================== TRAY ICON =====================
-
 def run_tray_icon():
     def on_quit(icon, item):
         icon.stop()
         os._exit(0)
 
     def on_show(icon, item):
-        if not root.winfo_viewable():  # chỉ mở nếu đang ẩn
+        if not root.winfo_viewable():
             root.deiconify()
         root.lift()
         root.focus_force()
@@ -201,6 +191,13 @@ def run_tray_icon():
     icon.run()
 
 # ===================== GUI =====================
+def toggle_entry(entry, button):
+    if entry.cget("show") == "*":
+        entry.config(show="")
+        button.config(text="Ẩn")
+    else:
+        entry.config(show="*")
+        button.config(text="👁")
 
 def browse_file():
     file_path = filedialog.askopenfilename(
@@ -228,27 +225,37 @@ def run():
     t.start()
 
     messagebox.showinfo("Bot", "✅ Bot đã khởi động, sẽ gửi tin vào Telegram.\nBạn có thể thấy icon ở khay hệ thống.")
-    root.withdraw()  # ẩn cửa sổ sau khi bắt đầu
+    root.withdraw()
 
 # ===================== MAIN =====================
-
 root = tk.Tk()
 root.title("StockBot Config (Author: ThanhLQ)")
-root.geometry("400x250")
+root.geometry("420x280")
 
 try:
     root.iconbitmap(ICON_PATH)
 except Exception as e:
     print("⚠️ Không thể set icon cho cửa sổ Tkinter:", e)
 
+# Bot Token
 tk.Label(root, text="Bot Token:").pack()
-entry_token = tk.Entry(root, width=40)
-entry_token.pack()
+frame_token = tk.Frame(root)
+frame_token.pack()
+entry_token = tk.Entry(frame_token, width=30, show="*")
+entry_token.pack(side=tk.LEFT)
+btn_toggle_token = tk.Button(frame_token, text="👁", command=lambda: toggle_entry(entry_token, btn_toggle_token))
+btn_toggle_token.pack(side=tk.LEFT)
 
+# Chat ID
 tk.Label(root, text="Chat ID:").pack()
-entry_chatid = tk.Entry(root, width=40)
-entry_chatid.pack()
+frame_chat = tk.Frame(root)
+frame_chat.pack()
+entry_chatid = tk.Entry(frame_chat, width=30, show="*")
+entry_chatid.pack(side=tk.LEFT)
+btn_toggle_chatid = tk.Button(frame_chat, text="👁", command=lambda: toggle_entry(entry_chatid, btn_toggle_chatid))
+btn_toggle_chatid.pack(side=tk.LEFT)
 
+# File mã
 tk.Label(root, text="File mã (.txt):").pack()
 frame_file = tk.Frame(root)
 frame_file.pack()
@@ -257,6 +264,7 @@ entry_file.pack(side=tk.LEFT)
 btn_browse = tk.Button(frame_file, text="Browse", command=browse_file)
 btn_browse.pack(side=tk.LEFT)
 
+# Interval
 tk.Label(root, text="Interval (giây):").pack()
 entry_interval = tk.Entry(root, width=10)
 entry_interval.insert(0, "60")
@@ -272,5 +280,5 @@ btn_start.pack(pady=10)
 t_tray = threading.Thread(target=run_tray_icon, daemon=True)
 t_tray.start()
 
-root.protocol("WM_DELETE_WINDOW", lambda: root.withdraw())  # ẩn khi nhấn X
+root.protocol("WM_DELETE_WINDOW", lambda: root.withdraw())
 root.mainloop()
